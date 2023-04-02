@@ -11,6 +11,7 @@ frames. The reconstructed image matrix for each frame is 384x384. The
 undersampling factor is 384/21=18.2.
 
 Li Feng, Ricardo Otazo, NYU, 2012
+
 reimplement in python by Bingyu Xin, 2023
 '''
 
@@ -50,9 +51,9 @@ class Base():
         recon_nufft_matlab = loadmat(data_path_nufft)['recon_nufft']
 
         print('- NUFFT RECONSTRUCTION : ')
-        self.cal_metric(recon_nufft[:, 0].permute(1, 2, 0).cpu().numpy()[::-1], recon_nufft_matlab)
+        self.cal_metric(recon_nufft_matlab, recon_nufft.squeeze().permute(1, 2, 0).cpu().numpy()[::-1])
         print('- GRASP RECONSTRUCTION : ')
-        self.cal_metric(recon_cs[:, 0].permute(1, 2, 0).cpu().numpy()[::-1], recon_grasp_matlab)
+        self.cal_metric(recon_grasp_matlab, recon_cs.squeeze().permute(1, 2, 0).cpu().numpy()[::-1])
 
         if show_img:
             import matplotlib.pyplot as plt
@@ -80,7 +81,8 @@ class Base():
         folder = os.path.dirname(filename)
         if not os.path.isdir(folder):
             os.makedirs(folder)
-        txy = recon_cs.abs().squeeze().cpu().numpy()
+        txy = recon_cs.abs().squeeze().cpu().numpy()  # only save the magnitude
+        txy = txy / txy.max()  # norm to 1
         img_sitk = sitk.GetImageFromArray(txy[:, ::-1])
         sitk.WriteImage(img_sitk, filename)
         print(f'### Reconstucted image saved to {filename}')
@@ -99,7 +101,7 @@ class Base():
             print('The liver data exists.')
         data = loadmat(data_path)
 
-        self.op, self.op_adj, self.toep_op, self.kdata, self.traj, self.dcp, self.smaps, self.kernel, self.recon_nufft, self._lambda = self.process_data(
+        self.op, self.toep_op, self.kdata, self.traj, self.dcp, self.smaps, self.kernel, self.recon_nufft, self._lambda = self.process_data(
             data)
 
     def process_data(self, data):
@@ -107,7 +109,7 @@ class Base():
         kdata, traj, dcp, smaps = data['kdata'].astype(np.complex64), data['k'].astype(np.complex64), data['w'].astype(
             np.float32), data['b1'].astype(np.complex64)
         # norm smaps, from ESPIRiT paper
-        smaps = smaps / np.sum(np.abs(smaps) ** 2, axis=2, keepdims=True) ** 0.5
+        smaps = smaps / np.sum(np.abs(smaps) ** 2, axis=2, keepdims=True) ** 0.5  # shape (384, 384, 12), (H,W,nc)
 
         output_shape = smaps.shape[0]
         nx, ntViews, nc = kdata.shape
@@ -116,10 +118,11 @@ class Base():
         nspokes = 21
         # number of frames
         nt = int(ntViews // nspokes)
-        kdata = kdata[:, 0:nt * nspokes].reshape(nx, nt, nspokes, nc).transpose(1, 3, 0, 2)  # shape (28, 12, 768, 21)
+        kdata = kdata[:, 0:nt * nspokes].reshape(nx, nt, nspokes, nc).transpose(1, 3, 0,
+                                                                                2)  # shape (28, 12, 768, 21), (T,nc,nx,ntViews)
         traj = 2 * np.pi * traj[:, 0:nt * nspokes].reshape(nx, nt, nspokes).transpose(1, 0, 2)  # shape (28, 768, 21)
         dcp = dcp[:, 0:nt * nspokes].reshape(nx, nt, nspokes).transpose(1, 0, 2)  # shape (28, 768, 21)
-        # print(kdata.shape, traj.shape, dcp.shape)
+        # print(smaps.shape, kdata.shape, traj.shape, dcp.shape)
 
         # to torch tensor
         op = tkbn.KbNufft((output_shape, output_shape)).to(self.device)
@@ -135,15 +138,15 @@ class Base():
 
         # nufft recon
         recon_nufft = op_adj(kdata * dcp, traj, smaps=smaps, norm='ortho')  # shape (28,1,384,384)
-        # l1 reg
+        # l1 reg, hyper-parameter can be tuned
         _lambda = 0.25 * recon_nufft.abs().max()
 
-        return op, op_adj, toep_op, kdata, traj, dcp, smaps, kernel, recon_nufft, _lambda
+        return op, toep_op, kdata, traj, dcp, smaps, kernel, recon_nufft, _lambda
 
 
 class GRASP(Base):
     def __init__(self):
-        Base.__init__(self)
+        super(GRASP, self).__init__()
 
     def tv(self, x):
         y = torch.cat([x[1::], x[-1::]], dim=0) - x
@@ -155,55 +158,58 @@ class GRASP(Base):
         y[-1] = x[-2]
         return y
 
-    def grad(self, x):
+    def grad(self, x, _l1Smooth=1e-15):
         # L2 norm part
         aah = []
         for i in range(self.kernel.shape[0]):
             aah.append(self.toep_op(x[i:i + 1], self.kernel[i:i + 1], smaps=self.smaps, norm='ortho'))
-        aah = torch.cat(aah, dim=0)  # * 384*torch.pi/2/21
+        aah = torch.cat(aah, dim=0)
 
         L2Grad = 2 * (aah - self.recon_nufft)
         # L1 norm part
-        w = self.tv(x)  # torch.cat([x[1::],x[-1::]],dim=0)-x
-        L1Grad = self.adj_tv(w * (w.abs() ** 2 + self._l1Smooth) ** -0.5)
+        w = self.tv(x)
+        L1Grad = self.adj_tv(w * (w.abs() ** 2 + _l1Smooth) ** -0.5)
 
         # composite gradient
         g = L2Grad + self._lambda * L1Grad
         return g
 
-    def objective(self, x, dx, t):
+    def objective(self, x, dx, t, _l1Smooth=1e-15):
         x_ = x + t * dx
         # L2-norm part
         w = (self.op(x_, self.traj, smaps=self.smaps, norm='ortho') - self.kdata) * self.dcp ** 0.5
         L2Obj = (w.abs() ** 2).sum()
 
         # L1-norm part
-        w = self.tv(x_)  # torch.cat([x_[1::],x_[-1::]],dim=0)-x_
-        L1Obj = ((w.abs() ** 2 + self._l1Smooth) ** 0.5).sum()
+        w = self.tv(x_)
+        L1Obj = ((w.abs() ** 2 + _l1Smooth) ** 0.5).sum()
         # objective function
         res = L2Obj + self._lambda * L1Obj
         return res
 
-    def CSL1NlCg(self, x0, nite):
+    def CSL1NlCg(self, x0, max_iter, gradToll=1e-3, maxlsiter=150, alpha=0.01, beta=0.6, print_detail=False):
+        '''
+        Non-linear Conjugate Gradient Algorithm
+        :param x0: starting point (gridding images)
+        :param max_iter: num of iterations
+        :param gradToll: stopping criteria by gradient magnitude
+        :param maxlsiter: line search parameter: max num of line-search iterations
+        :param alpha: line search parameter
+        :param beta: line search parameter
+        :param print_detail: print line-search details
+        :return: x, reconstructed images
+        '''
         # starting point
         x = x0
 
-        # line search parameters
-        maxlsiter = 150;
-        gradToll = 1e-3;
-        self._l1Smooth = 1e-15;
-        alpha = 0.01;
-        beta = 0.6;
-
-        t0 = 1;
-        k = 0;
-        # nite = 8
+        t0 = 1
+        k = 0
+        nite = max_iter - 1
         # compute g0  = grad(f(x))
         g0 = self.grad(x)
         dx = -g0
         # iterations
         while (1):
-
             # backtracking line-search
             f0 = self.objective(x, dx, 0)
             t = t0
@@ -215,7 +221,8 @@ class GRASP(Base):
                 t = t * beta
                 f1 = self.objective(x, dx, t)
                 ff = f0 - alpha * t * (torch.conj(g0) * dx).sum().abs()
-                print('----------------backtracking line-search: {}'.format((f1 - ff).item()))
+                if print_detail:
+                    print('----------------backtracking line-search: {}'.format((f1 - ff).item()))
 
             # control the number of line searches by adapting the initial step search
             t0 = t0 * beta if lsiter > 2 else t0
@@ -225,7 +232,8 @@ class GRASP(Base):
             x = x + t * dx
 
             print(' iter={}, cost = {}'.format(k, f1))
-            print('----------------conjugate gradient calculation')
+            if print_detail:
+                print('----------------conjugate gradient calculation')
             # conjugate gradient calculation
             g1 = self.grad(x)
             bk = (g1.abs() ** 2).sum() / ((g0.abs() ** 2).sum() + torch.finfo(torch.float64).eps)
@@ -238,13 +246,13 @@ class GRASP(Base):
                 break
         return x
 
-    def run(self, nround=3, nite=8, save_to_file=True, compared_matlab=False):
+    def run(self, nround=3, nite=8, save_to_file=True, compare_matlab=False):
         '''
-        run the GRASP method. For reconstruction shape of (28,1,384,384), run time on A100: 34s, GPU usage: 7.5G
+        run the GRASP method. For reconstruction shape of (28,1,384,384), run time on A100: 30s, GPU usage: 7.5G
         :param nround: run the grasp algorithm nround times
         :param nite: the iterations of nonlinear conjugate gradient descent algorithm with backtracking line search in grasp algorithm
         :param save_to_file: save the zero-filled and grasp reconstructed images to nii.gz file
-        :param compared_matlab: compare the python results with the original matlab code results
+        :param compare_matlab: compare the python results with the original matlab code results
         :return: grasp reconstructed liver images, shape (28,1,384,384), pytorch tensor, type: torch.complex64
         '''
         print('Start GRASP algorithm...')
@@ -256,9 +264,10 @@ class GRASP(Base):
         end_time = time.time()
         print('### Done! Running time: %.2f s' % (end_time - start_time))
         if save_to_file:
-            self.save_results(self.recon_nufft, 'output/liver_nufft.nii.gz')
-            self.save_results(recon_cs, 'output/liver_grasp.nii.gz')
-        if compared_matlab:
+            self.save_results(self.recon_nufft, 'output/grasp/liver_nufft.nii.gz')
+            self.save_results(recon_cs, 'output/grasp/liver_grasp.nii.gz')
+        if compare_matlab:
+            # this code: NUFFT: PSNR: 60.83, SSIM: 0.9999;;; GRASP: PSNR: 35.44, SSIM: 0.9620
             self.compare_with_matlab_results(self.recon_nufft, recon_cs)
         return recon_cs
 
