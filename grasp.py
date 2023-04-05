@@ -12,22 +12,24 @@ undersampling factor is 384/21=18.2.
 
 Li Feng, Ricardo Otazo, NYU, 2012
 
-reimplement in python by Bingyu Xin, 2023
+reimplement in python by Bingyu Xin, Rutgers, 2023
 '''
 
 import os
 import time
-from scipy.io.matlab import loadmat
 import numpy as np
 import torch
 import torchkbnufft as tkbn
-
+from scipy.io.matlab import loadmat
+import SimpleITK as sitk
 
 class Base():
     def __init__(self):
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(device)
-        self.prepare_for_grasp()
+        self.output_dir = 'output/grasp'
+        if not os.path.isdir(self.output_dir):
+            os.makedirs(self.output_dir)
 
     def compare_with_matlab_results(self, recon_nufft, recon_cs, show_img=False):
         print('### Compared with original matlab code result: ')
@@ -77,10 +79,8 @@ class Base():
         print(f'PSNR: {psnr:.2f}, SSIM: {ssim:.4f}')
 
     def save_results(self, recon_cs, filename):
-        import SimpleITK as sitk
-        folder = os.path.dirname(filename)
-        if not os.path.isdir(folder):
-            os.makedirs(folder)
+        filename = os.path.join(self.output_dir, filename)
+
         txy = recon_cs.abs().squeeze().cpu().numpy()  # only save the magnitude
         txy = txy / txy.max()  # norm to 1
         img_sitk = sitk.GetImageFromArray(txy[:, ::-1])
@@ -94,15 +94,14 @@ class Base():
         if not os.path.isfile(data_path):
             os.makedirs(folder, exist_ok=True)
             import urllib.request
-            print('Download the liver data...')
+            print(f'Download the liver data to {folder}...')
             url = 'https://rutgers.box.com/shared/static/pnjemhzp2pk18kgphr5ihkjp8ep50t67.mat'
             urllib.request.urlretrieve(url, data_path)
         else:
-            print('The liver data exists.')
+            print(f'The liver data exists in {folder}')
         data = loadmat(data_path)
 
-        self.op, self.toep_op, self.kdata, self.traj, self.dcp, self.smaps, self.kernel, self.recon_nufft, self._lambda = self.process_data(
-            data)
+        return self.process_data(data)
 
     def process_data(self, data):
         print('Preprocess the data...')
@@ -138,7 +137,7 @@ class Base():
 
         # nufft recon
         recon_nufft = op_adj(kdata * dcp, traj, smaps=smaps, norm='ortho')  # shape (28,1,384,384)
-        # l1 reg, hyper-parameter can be tuned
+        # l1 reg, (Regularization parameters were empirically selected)
         _lambda = 0.25 * recon_nufft.abs().max()
 
         return op, toep_op, kdata, traj, dcp, smaps, kernel, recon_nufft, _lambda
@@ -147,6 +146,8 @@ class Base():
 class GRASP(Base):
     def __init__(self):
         super(GRASP, self).__init__()
+        self.op, self.toep_op, self.kdata, self.traj, self.dcp, self.smaps,\
+        self.kernel, self.recon_nufft, self._lambda = self.prepare_for_grasp()
 
     def tv(self, x):
         y = torch.cat([x[1::], x[-1::]], dim=0) - x
@@ -264,8 +265,8 @@ class GRASP(Base):
         end_time = time.time()
         print('### Done! Running time: %.2f s' % (end_time - start_time))
         if save_to_file:
-            self.save_results(self.recon_nufft, 'output/grasp/liver_nufft.nii.gz')
-            self.save_results(recon_cs, 'output/grasp/liver_grasp.nii.gz')
+            self.save_results(self.recon_nufft, 'liver_nufft.nii.gz')
+            self.save_results(recon_cs, 'liver_grasp.nii.gz')
         if compare_matlab:
             # this code: NUFFT: PSNR: 60.83, SSIM: 0.9999;;; GRASP: PSNR: 35.44, SSIM: 0.9620
             self.compare_with_matlab_results(self.recon_nufft, recon_cs)
