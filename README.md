@@ -20,7 +20,7 @@ $$
 
 $S_1, S_2$ are the sparsity operators applied along two different dimension (for cardiac: cardiac motion & respiratory motion)(for DCE liver: contrast-enhancement phase & respiratory motion ), $R$ is a reordering operator that reorders the k-space data.
 
-#### RACER-GRASP [3]
+#### RACER-GRASP [3] ✅
 
 $$
 x = \underset{x}{\arg\min} ||\frac{W}{R}(F\cdot C \cdot x-y_c)||^2_2+\lambda_1||S \cdot x||_1
