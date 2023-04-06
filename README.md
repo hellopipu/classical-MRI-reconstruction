@@ -28,7 +28,13 @@ $$
 
 $W$ represents motion weights for different respiratory phases, $R$ represents the streak-ratio weights to adjust the contribution of each coil in the data consistency term.
 
-#### L+S
+#### L+S [4] ✅
+
+$$
+\min_{L,S} \frac{1}{2}||F\cdot C\cdot (L+S)-y_c||_2^2 + \lambda_L ||L||_* + \lambda_S ||TS||_1
+$$
+
+Matrix decomposition $x=L+S$, The L component captures the correlated background between frames and S captures the dynamic information. $||\cdot||_*$ is the nuclear-norm.
 
 ## Reference
 
@@ -37,3 +43,5 @@ $W$ represents motion weights for different respiratory phases, $R$ represents t
 [2] Feng, Li, et al. "XD‐GRASP: golden‐angle radial MRI with reconstruction of extra motion‐state dimensions using compressed sensing." *Magnetic resonance in medicine* 75.2 (2016): 775-788.
 
 [3] Feng, Li, et al. "RACER‐GRASP: respiratory‐weighted, aortic contrast enhancement‐guided and coil‐unstreaking golden‐angle radial sparse MRI." *Magnetic resonance in medicine* 80.1 (2018): 77-89.
+
+[4] Otazo, Ricardo, Emmanuel Candes, and Daniel K. Sodickson. "Low‐rank plus sparse matrix decomposition for accelerated dynamic MRI with separation of background and dynamic components." *Magnetic resonance in medicine* 73.3 (2015): 1125-1136.
