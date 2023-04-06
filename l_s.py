@@ -245,4 +245,4 @@ class LplusS(Base):
 if __name__ == '__main__':
     with torch.no_grad():
         l_s_method = LplusS()
-        recon_l_s = l_s_method.run(compare_matlab=True)
+        recon_l_s = l_s_method.run()
