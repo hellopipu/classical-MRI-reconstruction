@@ -629,7 +629,7 @@ class RACER_GRASP(DataSorting):
 
     def run(self, nround=3, nite=6, save_to_file=True, compare_matlab=False):
         '''
-        run the RACER-GRASP method. For reconstruction shape of (11,1,256,256) (96spokes/slice), run time on A100: 9, GPU usage: 14G
+        run the RACER-GRASP method. For reconstruction shape of (11,1,256,256) (96spokes/slice), run time on A100: 9s, GPU usage: 14G
         The iterative reconstruction part is a respiratory soft-weighted GRASP method.
         :param nround: run the grasp algorithm nround times
         :param nite: the iterations of nonlinear conjugate gradient descent algorithm with backtracking line search in grasp algorithm
