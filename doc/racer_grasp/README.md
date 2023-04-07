@@ -52,6 +52,8 @@ $x$ is the reconstructed image, $F$ is the NUFFT operator, $C$ is the coil sensi
 
 reconstruction output shape: [11,256,256], 96 spokes/slice, unstreaking & respiratory soft-weighted reconstruction
 
+![racer_grasp](https://user-images.githubusercontent.com/12103451/230668158-4580ce2a-faa1-4181-a407-336ec5a60620.gif)
+
 
 ## Reference
 
