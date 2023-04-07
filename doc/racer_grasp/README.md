@@ -50,9 +50,7 @@ $x$ is the reconstructed image, $F$ is the NUFFT operator, $C$ is the coil sensi
 
 ## Reconstruction results
 
-info: 11 slices, 96 spokes/slice, unstreaking & respiratory soft-weighted reconstruction
-
-[TODO: upload video ]
+reconstruction output shape: [11,256,256], 96 spokes/slice, unstreaking & respiratory soft-weighted reconstruction
 
 
 ## Reference
