@@ -49,7 +49,10 @@ class Base():
         # save different respiratory phases
         for i in range(self.ntres):
             img_sitk = sitk.GetImageFromArray(ttxy[:, i])
-            sitk.WriteImage(img_sitk, filename.split('.nii.gz')[0] + '_res{}.nii.gz'.format(i))
+            sitk.WriteImage(img_sitk, filename.split('.nii.gz')[0] + '_resp{}.nii.gz'.format(i))
+        for i in range(0,self.nt,3):
+            img_sitk = sitk.GetImageFromArray(ttxy[i])
+            sitk.WriteImage(img_sitk, filename.split('.nii.gz')[0] + '_contrast{}.nii.gz'.format(i))
         print(f'### Reconstucted image saved to {filename}')
 
     def compare_with_matlab_results(self, recon_nufft, recon_cs, show_img=False):
@@ -232,7 +235,7 @@ class XDGRASP(Base):
         Res_Signal = -Res_Signal
         Res_Signal = (Res_Signal - Res_Signal.min()) / (Res_Signal.max() - Res_Signal.min())
         # Estimate the envelope of the signal (contrast enhancement + respiration)
-        peak_indices = peakutils.indexes(Res_Signal, thres=0.7, min_dist=16)
+        peak_indices = peakutils.indexes(Res_Signal, thres=0.5, min_dist=16)
         peaks = Res_Signal[peak_indices]
 
         # substract the estimated envelope
@@ -419,7 +422,7 @@ class XDGRASP(Base):
         print('### Done! Running time: %.2f s' % (end_time - start_time))
 
         if save_to_file:
-            self.save_results(self.recon_nufft, 'DCE_nufft.nii.gz')
+            # self.save_results(self.recon_nufft, 'DCE_nufft.nii.gz')
             self.save_results(recon_cs, 'DCE_xdgrasp.nii.gz')
         if compare_matlab:
             #TODO: The low SSIM values observed in the NUFFT results may be attributed to differences

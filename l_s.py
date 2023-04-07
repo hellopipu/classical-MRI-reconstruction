@@ -136,7 +136,7 @@ class Base():
 
         # nufft recon
         recon_nufft = op_adj(kdata * dcp, traj, smaps=smaps, norm='ortho')  # shape (28,1,384,384)
-        # l1 reg, (Regularization parameters were empirically selected)
+        # L,S threshold, (Regularization parameters were empirically selected)
         lambda_L = 0.025
         lambda_S = 0.5 * recon_nufft.abs().max()
 
@@ -169,9 +169,6 @@ class LplusS(Base):
         :param x0: starting point (gridding images)
         :param max_iter: num of iterations
         :param gradToll: stopping criteria by gradient magnitude
-        :param maxlsiter: line search parameter: max num of line-search iterations
-        :param alpha: line search parameter
-        :param beta: line search parameter
         :param print_detail: print line-search details
         :return: x, reconstructed images
         '''

@@ -129,6 +129,7 @@ class Base():
         return self.process_data((kdata, traj, dcp,kc,smaps))
 
     def process_data(self, data):
+        print('Processing data...')
         kdata, traj, dcp, kc, smaps = data
         kdata, traj, dcp, kc, smaps = kdata.astype(np.complex64), traj.astype(np.complex64), dcp.astype(np.float32), \
                                 kc.astype(np.complex64), smaps.astype(np.complex64)
